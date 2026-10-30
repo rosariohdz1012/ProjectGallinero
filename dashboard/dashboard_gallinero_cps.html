@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gallinero Automático CPS - Centro de Control IoT</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Font Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        coop: {
+                            dark: '#0B0F17',
+                            card: '#161F30',
+                            border: '#233044',
+                            accent: '#10B981',
+                            alert: '#EF4444',
+                            warning: '#F59E0B',
+                            water: '#3B82F6',
+                            co2: '#8B5CF6'
+                        }
+                    },
+                    animation: {
+                        'pulse-fast': 'pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'glow-red': 'glowRed 1.5s ease-in-out infinite alternate',
+                    },
+                    keyframes: {
+                        glowRed: {
+                            '0%': { boxShadow: '0 0 5px rgba(239, 68, 68, 0.4)' },
+                            '100%': { boxShadow: '0 0 20px rgba(239, 68, 68, 0.9)' }
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #0B0F17;
+            color: #F3F4F6;
+            font-family: 'Inter', sans-serif;
+        }
+        .glass-panel {
+            background: rgba(22, 31, 48, 0.75);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(35, 48, 68, 0.8);
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0B0F17;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #233044;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #374151;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between selection:bg-emerald-500 selection:text-white">
+
+    <!-- Top Navigation Header -->
+    <header class="sticky top-0 z-50 glass-panel border-b border-coop-border px-4 lg:px-8 py-3">
+        <div class="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+            
+            <!-- Logo & Title -->
+            <div class="flex items-center space-x-3 w-full md:w-auto justify-between md:justify-start">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+                        <i class="fa-solid font-bold text-white text-xl">🐣</i>
+                    </div>
+                    <div>
+                        <h1 class="text-lg font-bold text-white tracking-wide flex items-center gap-2">
+                            Gallinero Automático <span class="text-xs bg-emerald-500/20 text-emerald-400 font-semibold px-2 py-0.5 rounded-full border border-emerald-500/30">CPS v2.0</span>
+                        </h1>
+                        <p class="text-xs text-gray-400">Sistema Ciberfísico de Monitoreo & Actuación Crítica</p>
+                    </div>
+                </div>
+
+                <!-- Mobile Quick Status Pill -->
+                <div class="md:hidden flex items-center space-x-2">
+                    <span id="mobileStatusDot" class="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span id="mobileStatusText" class="text-xs font-medium text-emerald-400">Normal</span>
+                </div>
+            </div>
+
+            <!-- Mode Selector & Connection Bar -->
+            <div class="flex flex-wrap items-center gap-3 w-full md:w-auto justify-end">
+                
+                <!-- Connection Mode Switcher -->
+                <div class="bg-coop-dark p-1 rounded-xl border border-coop-border flex items-center text-xs">
+                    <button id="btnModeSim" onclick="setMode('sim')" class="px-3 py-1.5 rounded-lg font-medium transition-all duration-200 bg-emerald-500 text-white shadow">
+                        <i class="fa-solid fa-flask mr-1"></i> Modo Demo / Sim
+                    </button>
+                    <button id="btnModeLive" onclick="setMode('live')" class="px-3 py-1.5 rounded-lg font-medium text-gray-400 hover:text-white transition-all duration-200">
+                        <i class="fa-solid fa-wifi mr-1"></i> ESP32 En Vivo
+                    </button>
+                </div>
+
+                <!-- ESP32 IP Input Box -->
+                <div id="espIpContainer" class="hidden flex items-center space-x-2 bg-coop-dark px-3 py-1.5 rounded-xl border border-coop-border">
+                    <span class="text-xs text-gray-400">http://</span>
+                    <input type="text" id="esp32Ip" value="192.168.137.174" placeholder="IP del ESP32" class="bg-transparent text-xs text-white font-mono focus:outline-none w-28">
+                    <span class="text-xs text-gray-400">/estado</span>
+                    <button onclick="checkEsp32Connection()" class="text-xs bg-emerald-600 hover:bg-emerald-500 px-2 py-1 rounded text-white font-semibold transition">
+                        Conectar
+                    </button>
+                </div>
+
+                <!-- Overall System Status Badge -->
+                <div class="hidden md:flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-coop-card border border-coop-border">
+                    <span id="sysStatusDot" class="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span id="sysStatusText" class="text-xs font-semibold text-emerald-400">Sistema Operativo Seguro</span>
+                </div>
+
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="max-w-7xl w-full mx-auto p-4 lg:p-8 space-y-6">
+
+        <!-- Critical Emergency Alert Banner (Hidden by default) -->
+        <div id="alertBanner" class="hidden rounded-2xl bg-gradient-to-r from-red-900/80 via-red-600/60 to-red-900/80 p-4 border border-red-500/50 shadow-xl animate-glow-red transition-all">
+            <div class="flex items-center justify-between flex-wrap gap-3">
+                <div class="flex items-center space-x-3">
+                    <div class="w-12 h-12 rounded-xl bg-red-500/20 border border-red-500/40 flex items-center justify-center text-red-400 text-2xl animate-pulse-fast">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold text-white tracking-wide uppercase flex items-center gap-2">
+                            🚨 Alerta Crítica Detectada
+                        </h3>
+                        <p id="alertBannerText" class="text-sm text-red-100 font-medium">Parámetros fuera de los límites de seguridad aceptables.</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <button onclick="silenceSiren()" class="px-4 py-2 bg-red-950/80 hover:bg-red-900 text-red-200 text-xs font-semibold rounded-xl border border-red-500/30 transition">
+                        <i class="fa-solid fa-bell-slash mr-1"></i> Silenciar Alarma
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Metric Cards Grid (5 Key Variables) -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            
+            <!-- 1. Temperature Card -->
+            <div class="glass-panel rounded-2xl p-4 flex flex-col justify-between hover:border-emerald-500/40 transition-all duration-300">
+                <div>
+                    <div class="flex items-center justify-between text-gray-400 text-xs font-semibold mb-2">
+                        <span>TEMPERATURA</span>
+                        <i class="fa-solid fa-temperature-half text-amber-500 text-base"></i>
+                    </div>
+                    <div class="flex items-baseline space-x-1">
+                        <span id="valTemp" class="text-3xl font-extrabold text-white tracking-tight">19.8</span>
+                        <span class="text-sm font-semibold text-gray-400">°C</span>
+                    </div>
+                </div>
+                <div class="mt-4 space-y-2">
+                    <div class="flex justify-between text-[10px] font-medium text-gray-400">
+                        <span>Límite: <b class="text-gray-200">30.0 °C</b></span>
+                        <span id="statusTemp" class="text-emerald-400 font-bold">Óptimo</span>
+                    </div>
+                    <div class="w-full h-2 bg-coop-dark rounded-full overflow-hidden p-0.5 border border-coop-border">
+                        <div id="barTemp" class="h-full bg-gradient-to-r from-emerald-500 via-amber-500 to-red-500 rounded-full transition-all duration-500" style="width: 45%;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. Humidity Card -->
+            <div class="glass-panel rounded-2xl p-4 flex flex-col justify-between hover:border-emerald-500/40 transition-all duration-300">
+                <div>
+                    <div class="flex items-center justify-between text-gray-400 text-xs font-semibold mb-2">
+                        <span>HUMEDAD RELATIVA</span>
+                        <i class="fa-solid fa-droplet text-sky-400 text-base"></i>
+                    </div>
+                    <div class="flex items-baseline space-x-1">
+                        <span id="valHum" class="text-3xl font-extrabold text-white tracking-tight">74.0</span>
+                        <span class="text-sm font-semibold text-gray-400">%</span>
+                    </div>
+                </div>
+                <div class="mt-4 space-y-2">
+                    <div class="flex justify-between text-[10px] font-medium text-gray-400">
+                        <span>Rango: <b class="text-gray-200">50 - 80 %</b></span>
+                        <span id="statusHum" class="text-emerald-400 font-bold">Normal</span>
+                    </div>
+                    <div class="w-full h-2 bg-coop-dark rounded-full overflow-hidden p-0.5 border border-coop-border">
+                        <div id="barHum" class="h-full bg-sky-500 rounded-full transition-all duration-500" style="width: 74%;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. CO2 Level Card -->
+            <div class="glass-panel rounded-2xl p-4 flex flex-col justify-between hover:border-emerald-500/40 transition-all duration-300">
+                <div>
+                    <div class="flex items-center justify-between text-gray-400 text-xs font-semibold mb-2">
+                        <span>CALIDAD AIRE (CO2)</span>
+                        <i class="fa-solid fa-wind text-coop-co2 text-base"></i>
+                    </div>
+                    <div class="flex items-baseline space-x-1">
+                        <span id="valCo2" class="text-3xl font-extrabold text-white tracking-tight">965</span>
+                        <span class="text-sm font-semibold text-gray-400">ppm</span>
+                    </div>
+                </div>
+                <div class="mt-4 space-y-2">
+                    <div class="flex justify-between text-[10px] font-medium text-gray-400">
+                        <span>Límite: <b class="text-gray-200">1200 ppm</b></span>
+                        <span id="statusCo2" class="text-emerald-400 font-bold">Limpio</span>
+                    </div>
+                    <div class="w-full h-2 bg-coop-dark rounded-full overflow-hidden p-0.5 border border-coop-border">
+                        <div id="barCo2" class="h-full bg-purple-500 rounded-full transition-all duration-500" style="width: 48%;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4. Water Level Card (Bebedero) -->
+            <div class="glass-panel rounded-2xl p-4 flex flex-col justify-between hover:border-emerald-500/40 transition-all duration-300">
+                <div>
+                    <div class="flex items-center justify-between text-gray-400 text-xs font-semibold mb-2">
+                        <span>NIVEL AGUA BEBEDERO</span>
+                        <i class="fa-solid fa-faucet-drip text-coop-water text-base"></i>
+                    </div>
+                    <div class="flex items-baseline space-x-1">
+                        <span id="valWater" class="text-3xl font-extrabold text-white tracking-tight">76</span>
+                        <span class="text-sm font-semibold text-gray-400">/ 1024</span>
+                    </div>
+                </div>
+                <div class="mt-4 space-y-2">
+                    <div class="flex justify-between text-[10px] font-medium text-gray-400">
+                        <span>Mínimo: <b class="text-gray-200">200 Nivel</b></span>
+                        <span id="statusWater" class="text-red-400 font-bold animate-pulse">¡Bajo!</span>
+                    </div>
+                    <div class="w-full h-2 bg-coop-dark rounded-full overflow-hidden p-0.5 border border-coop-border">
+                        <div id="barWater" class="h-full bg-blue-500 rounded-full transition-all duration-500" style="width: 15%;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 5. Food Weight Card (Tolva HX711) -->
+            <div class="glass-panel rounded-2xl p-4 flex flex-col justify-between hover:border-emerald-500/40 transition-all duration-300">
+                <div>
+                    <div class="flex items-center justify-between text-gray-400 text-xs font-semibold mb-2">
+                        <span>ALIMENTO EN TOLVA</span>
+                        <i class="fa-solid fa-scale-balanced text-emerald-400 text-base"></i>
+                    </div>
+                    <div class="flex items-baseline space-x-1">
+                        <span id="valFood" class="text-3xl font-extrabold text-white tracking-tight">1.50</span>
+                        <span class="text-sm font-semibold text-gray-400">kg</span>
+                    </div>
+                </div>
+                <div class="mt-4 space-y-2">
+                    <div class="flex justify-between text-[10px] font-medium text-gray-400">
+                        <span>Mínimo: <b class="text-gray-200">0.50 kg</b></span>
+                        <span id="statusFood" class="text-emerald-400 font-bold">Suficiente</span>
+                    </div>
+                    <div class="w-full h-2 bg-coop-dark rounded-full overflow-hidden p-0.5 border border-coop-border">
+                        <div id="barFood" class="h-full bg-emerald-500 rounded-full transition-all duration-500" style="width: 75%;"></div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Middle Section: Chart + CPS Automated Actuators -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <!-- Real-time Telemetry Line Chart (Spans 2 cols) -->
+            <div class="lg:col-span-2 glass-panel rounded-2xl p-5 flex flex-col justify-between">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h2 class="text-sm font-bold text-white flex items-center gap-2">
+                            <i class="fa-solid fa-chart-line text-emerald-400"></i> Histórico de Telemetría en Tiempo Real
+                        </h2>
+                        <p class="text-xs text-gray-400">Comportamiento térmico y ambiental del gallinero</p>
+                    </div>
+                    <div class="flex items-center space-x-3 text-xs">
+                        <span class="flex items-center gap-1 text-amber-400"><span class="w-2 h-2 rounded-full bg-amber-400"></span> Temp (°C)</span>
+                        <span class="flex items-center gap-1 text-sky-400"><span class="w-2 h-2 rounded-full bg-sky-400"></span> Hum (%)</span>
+                    </div>
+                </div>
+                <div class="w-full h-64">
+                    <canvas id="telemetryChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Automated Actuator Status & CPS Controls -->
+            <div class="glass-panel rounded-2xl p-5 flex flex-col justify-between space-y-4">
+                <div>
+                    <h2 class="text-sm font-bold text-white flex items-center gap-2 mb-1">
+                        <i class="fa-solid fa-robot text-teal-400"></i> Respuestas Ciberfísicas Automáticas
+                    </h2>
+                    <p class="text-xs text-gray-400 mb-4">Actuadores que responden automáticamente a los sensores</p>
+
+                    <div class="space-y-3">
+                        <!-- Ventilador Extraction -->
+                        <div class="p-3 bg-coop-dark rounded-xl border border-coop-border flex items-center justify-between">
+                            <div class="flex items-center space-x-3">
+                                <div id="iconFan" class="w-9 h-9 rounded-lg bg-gray-800 text-gray-400 flex items-center justify-center text-base">
+                                    <i class="fa-solid fa-fan"></i>
+                                </div>
+                                <div>
+                                    <div class="text-xs font-semibold text-white">Extractores de Aire</div>
+                                    <div class="text-[10px] text-gray-400">Disparado si Temp > 30°C o CO2 High</div>
+                                </div>
+                            </div>
+                            <span id="badgeFan" class="text-xs px-2.5 py-1 rounded-full font-semibold bg-gray-800 text-gray-400 border border-gray-700">INACTIVO</span>
+                        </div>
+
+                        <!-- Bomba de Agua Relleno -->
+                        <div class="p-3 bg-coop-dark rounded-xl border border-coop-border flex items-center justify-between">
+                            <div class="flex items-center space-x-3">
+                                <div id="iconPump" class="w-9 h-9 rounded-lg bg-gray-800 text-gray-400 flex items-center justify-center text-base">
+                                    <i class="fa-solid fa-pump-soap"></i>
+                                </div>
+                                <div>
+                                    <div class="text-xs font-semibold text-white">Bomba Relleno Bebedero</div>
+                                    <div class="text-[10px] text-gray-400">Disparado si Nivel Agua < 200</div>
+                                </div>
+                            </div>
+                            <span id="badgePump" class="text-xs px-2.5 py-1 rounded-full font-semibold bg-gray-800 text-gray-400 border border-gray-700">INACTIVO</span>
+                        </div>
+
+                        <!-- Motor Dispensador Alimento -->
+                        <div class="p-3 bg-coop-dark rounded-xl border border-coop-border flex items-center justify-between">
+                            <div class="flex items-center space-x-3">
+                                <div id="iconFeeder" class="w-9 h-9 rounded-lg bg-gray-800 text-gray-400 flex items-center justify-center text-base">
+                                    <i class="fa-solid fa-box-open"></i>
+                                </div>
+                                <div>
+                                    <div class="text-xs font-semibold text-white">Servo Tolva de Alimento</div>
+                                    <div class="text-[10px] text-gray-400">Disparado si Peso Alimento < 0.5kg</div>
+                                </div>
+                            </div>
+                            <span id="badgeFeeder" class="text-xs px-2.5 py-1 rounded-full font-semibold bg-gray-800 text-gray-400 border border-gray-700">INACTIVO</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Emergency Siren Toggle -->
+                <div class="pt-2 border-t border-coop-border flex items-center justify-between">
+                    <span class="text-xs font-medium text-gray-300">Sirena de Alarma Sonora:</span>
+                    <button id="btnAudioToggle" onclick="toggleAudio()" class="px-3 py-1.5 rounded-lg bg-coop-dark hover:bg-gray-800 text-xs text-gray-300 font-semibold border border-coop-border transition">
+                        <i class="fa-solid fa-volume-high text-emerald-400 mr-1"></i> Habilitado
+                    </button>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Event Log / Bitácora de Eventos CPS -->
+        <div class="glass-panel rounded-2xl p-5 border border-coop-border">
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="fa-solid fa-list-check text-amber-400"></i> Bitácora de Eventos y Alertas Ciberfísicas
+                </h2>
+                <button onclick="clearEventLog()" class="text-[11px] text-gray-400 hover:text-white bg-coop-dark px-2.5 py-1 rounded-lg border border-coop-border transition">
+                    Limpiar Consola
+                </button>
+            </div>
+            <div id="eventLog" class="h-32 overflow-y-auto font-mono text-xs space-y-1.5 bg-coop-dark/80 p-3 rounded-xl border border-coop-border text-gray-300">
+                <div class="text-emerald-400">[SISTEMA] Dashboard iniciado correctamente. Listo para recibir telemetría.</div>
+            </div>
+        </div>
+
+        <!-- Interactive Simulation Controls Panel (For Teacher Presentation / Testing) -->
+        <div id="simPanel" class="glass-panel rounded-2xl p-5 border border-emerald-500/30">
+            <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+                <div>
+                    <h2 class="text-sm font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-sliders text-emerald-400"></i> Panel de Simulación Interactivo (Modo Presentación CPS)
+                    </h2>
+                    <p class="text-xs text-gray-400">Mueve los deslices para forzar las alertas y probar la respuesta del sistema sin hardware físico.</p>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="triggerPreset('normal')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30 transition">
+                        Estado Normal
+                    </button>
+                    <button onclick="triggerPreset('criticalTemp')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-red-500/20 text-red-300 border border-red-500/30 hover:bg-red-500/30 transition">
+                        Probar Calor Crítico
+                    </button>
+                    <button onclick="triggerPreset('lowWater')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-blue-500/20 text-blue-300 border border-blue-500/30 hover:bg-blue-500/30 transition">
+                        Probar Agua Baja
+                    </button>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-2">
+                <!-- Temp Slider -->
+                <div>
+                    <div class="flex justify-between text-xs font-medium text-gray-300 mb-1">
+                        <span>Temperatura Sim:</span>
+                        <span id="sliderTempLbl" class="text-emerald-400 font-bold">22.0 °C</span>
+                    </div>
+                    <input type="range" id="sliderTemp" min="10" max="45" step="0.5" value="22" oninput="updateSimData()" class="w-full accent-emerald-500 cursor-pointer">
+                </div>
+
+                <!-- Water Slider -->
+                <div>
+                    <div class="flex justify-between text-xs font-medium text-gray-300 mb-1">
+                        <span>Nivel Agua Sim:</span>
+                        <span id="sliderWaterLbl" class="text-blue-400 font-bold">750</span>
+                    </div>
+                    <input type="range" id="sliderWater" min="0" max="1024" step="10" value="750" oninput="updateSimData()" class="w-full accent-blue-500 cursor-pointer">
+                </div>
+
+                <!-- CO2 Slider -->
+                <div>
+                    <div class="flex justify-between text-xs font-medium text-gray-300 mb-1">
+                        <span>CO2 Air Sim:</span>
+                        <span id="sliderCo2Lbl" class="text-purple-400 font-bold">600 ppm</span>
+                    </div>
+                    <input type="range" id="sliderCo2" min="300" max="2500" step="50" value="600" oninput="updateSimData()" class="w-full accent-purple-500 cursor-pointer">
+                </div>
+
+                <!-- Food Slider -->
+                <div>
+                    <div class="flex justify-between text-xs font-medium text-gray-300 mb-1">
+                        <span>Peso Alimento Sim:</span>
+                        <span id="sliderFoodLbl" class="text-emerald-400 font-bold">1.50 kg</span>
+                    </div>
+                    <input type="range" id="sliderFood" min="0" max="5" step="0.05" value="1.5" oninput="updateSimData()" class="w-full accent-emerald-500 cursor-pointer">
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-coop-border glass-panel py-4 text-center text-xs text-gray-500 mt-8">
+        <p>Gallinero Automático CPS &copy; 2026 - Proyecto de Monitoreo IoT Ciberfísico | Nodos ESP32 Dual & Client Controller</p>
+    </footer>
+
+    <!-- Tone.js Sound Synthesizer for Audio Alarm -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+
+    <!-- JavaScript Application Logic -->
+    <script>
+        // Global State & Data
+        let appMode = 'sim'; // 'sim' or 'live'
+        let audioEnabled = true;
+        let sirenPlaying = false;
+        let synth = null;
+        let pollingInterval = null;
+        let lastEventStates = { temp: false, water: false, co2: false, food: false };
+
+        // Current Telemetry Values
+        let currentData = {
+            temperatura: 19.8,
+            humedad: 74.0,
+            co2: 965,
+            nivel_agua: 76,
+            alimento: 1.50
+        };
+
+        // Limits & Thresholds
+        const THRESHOLDS = {
+            TEMP_MAX: 30.0,
+            WATER_MIN: 200,
+            CO2_MAX: 1200,
+            FOOD_MIN: 0.50
+        };
+
+        // Chart Instance
+        let telemetryChart;
+
+        // Initialize Application on Window Load
+        window.onload = function() {
+            initChart();
+            startPolling();
+            updateDashboardUI();
+        };
+
+        function logEvent(message, type = 'info') {
+            const logBox = document.getElementById('eventLog');
+            if (!logBox) return;
+
+            const timeStr = new Date().toLocaleTimeString();
+            let colorClass = 'text-gray-300';
+            if (type === 'alert') colorClass = 'text-red-400 font-bold';
+            if (type === 'success') colorClass = 'text-emerald-400';
+            if (type === 'warning') colorClass = 'text-amber-400';
+
+            const newEntry = document.createElement('div');
+            newEntry.className = colorClass;
+            newEntry.innerHTML = `<span class="text-gray-500">[${timeStr}]</span> ${message}`;
+            logBox.appendChild(newEntry);
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+
+        function clearEventLog() {
+            const logBox = document.getElementById('eventLog');
+            if (logBox) logBox.innerHTML = '<div class="text-emerald-400">[SISTEMA] Consola reiniciada.</div>';
+        }
+
+        // Mode Switcher (Demo Simulator vs Live ESP32 HTTP Fetch)
+        function setMode(mode) {
+            appMode = mode;
+            const btnSim = document.getElementById('btnModeSim');
+            const btnLive = document.getElementById('btnModeLive');
+            const espIpContainer = document.getElementById('espIpContainer');
+            const simPanel = document.getElementById('simPanel');
+
+            if (mode === 'sim') {
+                btnSim.className = "px-3 py-1.5 rounded-lg font-medium transition-all duration-200 bg-emerald-500 text-white shadow";
+                btnLive.className = "px-3 py-1.5 rounded-lg font-medium text-gray-400 hover:text-white transition-all duration-200";
+                espIpContainer.classList.add('hidden');
+                simPanel.classList.remove('hidden');
+                logEvent("Modo de operación cambiado a: SIMULACIÓN / DEMO", "warning");
+            } else {
+                btnLive.className = "px-3 py-1.5 rounded-lg font-medium transition-all duration-200 bg-emerald-500 text-white shadow";
+                btnSim.className = "px-3 py-1.5 rounded-lg font-medium text-gray-400 hover:text-white transition-all duration-200";
+                espIpContainer.classList.remove('hidden');
+                simPanel.classList.add('hidden');
+                logEvent("Modo de operación cambiado a: ESP32 EN VIVO", "info");
+            }
+        }
+
+        // Initialize Chart.js Chart
+        function initChart() {
+            const ctx = document.getElementById('telemetryChart').getContext('2d');
+            telemetryChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'Temperatura (°C)',
+                            data: [],
+                            borderColor: '#F59E0B',
+                            backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.4
+                        },
+                        {
+                            label: 'Humedad (%)',
+                            data: [],
+                            borderColor: '#38BDF8',
+                            backgroundColor: 'rgba(56, 189, 248, 0.05)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(35, 48, 68, 0.5)' },
+                            ticks: { color: '#9CA3AF', font: { size: 10 } }
+                        },
+                        y: {
+                            grid: { color: 'rgba(35, 48, 68, 0.5)' },
+                            ticks: { color: '#9CA3AF', font: { size: 10 } }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+
+        // Main Loop: Fetch Data & Update Every 2 Seconds
+        function startPolling() {
+            if (pollingInterval) clearInterval(pollingInterval);
+            
+            pollingInterval = setInterval(() => {
+                if (appMode === 'sim') {
+                    // Add subtle random float fluctuation in sim mode
+                    currentData.humedad = parseFloat((72 + (Math.random() * 4 - 2)).toFixed(1));
+                } else {
+                    // Fetch live data from actual ESP32 HTTP Server
+                    fetchLiveEsp32Data();
+                }
+
+                updateDashboardUI();
+                pushChartData();
+            }, 2000);
+        }
+
+        // Fetch JSON Payload from ESP32 IP
+        async function fetchLiveEsp32Data() {
+            const ip = document.getElementById('esp32Ip').value.trim();
+            if (!ip) return;
+
+            const url = `http://${ip}/estado`;
+
+            try {
+                const response = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(2500) });
+                if (response.ok) {
+                    const data = await response.json();
+                    currentData.temperatura = parseFloat(data.temperatura) || 0;
+                    currentData.humedad = parseFloat(data.humedad) || 0;
+                    currentData.co2 = parseInt(data.co2) || 0;
+                    currentData.nivel_agua = parseInt(data.nivel_agua) || 0;
+                    currentData.alimento = parseFloat(data.alimento) || 0;
+                }
+            } catch (error) {
+                console.warn("Error conectando con ESP32:", error);
+            }
+        }
+
+        // Manual Connectivity Test Button
+        function checkEsp32Connection() {
+            fetchLiveEsp32Data();
+            logEvent("Probando conexión HTTP con la IP ingresada...", "info");
+        }
+
+        // Update Sim Controls Slider Values
+        function updateSimData() {
+            if (appMode !== 'sim') return;
+
+            currentData.temperatura = parseFloat(document.getElementById('sliderTemp').value);
+            currentData.nivel_agua = parseInt(document.getElementById('sliderWater').value);
+            currentData.co2 = parseInt(document.getElementById('sliderCo2').value);
+            currentData.alimento = parseFloat(document.getElementById('sliderFood').value);
+
+            document.getElementById('sliderTempLbl').innerText = currentData.temperatura.toFixed(1) + " °C";
+            document.getElementById('sliderWaterLbl').innerText = currentData.nivel_agua;
+            document.getElementById('sliderCo2Lbl').innerText = currentData.co2 + " ppm";
+            document.getElementById('sliderFoodLbl').innerText = currentData.alimento.toFixed(2) + " kg";
+
+            updateDashboardUI();
+        }
+
+        // Preset buttons for quick classroom demonstration
+        function triggerPreset(preset) {
+            setMode('sim');
+            if (preset === 'normal') {
+                document.getElementById('sliderTemp').value = 21.5;
+                document.getElementById('sliderWater').value = 700;
+                document.getElementById('sliderCo2').value = 650;
+                document.getElementById('sliderFood').value = 1.8;
+                logEvent("Preset cargado: Condiciones Estables", "success");
+            } else if (preset === 'criticalTemp') {
+                document.getElementById('sliderTemp').value = 34.5;
+                logEvent("Preset cargado: Simulación de Temperatura Alta", "alert");
+            } else if (preset === 'lowWater') {
+                document.getElementById('sliderWater').value = 50;
+                logEvent("Preset cargado: Simulación de Tanque Vacío", "alert");
+            }
+            updateSimData();
+        }
+
+        // Update Dashboard Values, Gauges and Actuators
+        function updateDashboardUI() {
+            // 1. Temperature Update
+            document.getElementById('valTemp').innerText = currentData.temperatura.toFixed(1);
+            const tempPct = Math.min(Math.max((currentData.temperatura / 45) * 100, 0), 100);
+            document.getElementById('barTemp').style.width = tempPct + '%';
+            const tempAlert = currentData.temperatura >= THRESHOLDS.TEMP_MAX;
+            document.getElementById('statusTemp').innerText = tempAlert ? "¡CRÍTICO!" : "Óptimo";
+            document.getElementById('statusTemp').className = tempAlert ? "text-red-400 font-bold animate-pulse" : "text-emerald-400 font-bold";
+
+            // 2. Humidity Update
+            document.getElementById('valHum').innerText = currentData.humedad.toFixed(1);
+            document.getElementById('barHum').style.width = Math.min(currentData.humedad, 100) + '%';
+
+            // 3. CO2 Update
+            document.getElementById('valCo2').innerText = currentData.co2;
+            const co2Pct = Math.min((currentData.co2 / 2000) * 100, 100);
+            document.getElementById('barCo2').style.width = co2Pct + '%';
+            const co2Alert = currentData.co2 >= THRESHOLDS.CO2_MAX;
+            document.getElementById('statusCo2').innerText = co2Alert ? "Elevado" : "Limpio";
+            document.getElementById('statusCo2').className = co2Alert ? "text-amber-400 font-bold" : "text-emerald-400 font-bold";
+
+            // 4. Water Level Update
+            document.getElementById('valWater').innerText = currentData.nivel_agua;
+            const waterPct = Math.min((currentData.nivel_agua / 1024) * 100, 100);
+            document.getElementById('barWater').style.width = waterPct + '%';
+            const waterAlert = currentData.nivel_agua <= THRESHOLDS.WATER_MIN;
+            document.getElementById('statusWater').innerText = waterAlert ? "¡BAJO!" : "Normal";
+            document.getElementById('statusWater').className = waterAlert ? "text-red-400 font-bold animate-pulse" : "text-emerald-400 font-bold";
+
+            // 5. Food Weight Update
+            document.getElementById('valFood').innerText = currentData.alimento.toFixed(2);
+            const foodPct = Math.min((currentData.alimento / 3.0) * 100, 100);
+            document.getElementById('barFood').style.width = foodPct + '%';
+            const foodAlert = currentData.alimento <= THRESHOLDS.FOOD_MIN;
+            document.getElementById('statusFood').innerText = foodAlert ? "¡Escaso!" : "Suficiente";
+            document.getElementById('statusFood').className = foodAlert ? "text-amber-400 font-bold" : "text-emerald-400 font-bold";
+
+            // EVALUATE AUTOMATED CYBER-PHYSICAL ACTUATORS
+            setActuatorState('iconFan', 'badgeFan', tempAlert || co2Alert, 'fa-spin');
+            setActuatorState('iconPump', 'badgePump', waterAlert, '');
+            setActuatorState('iconFeeder', 'badgeFeeder', foodAlert, '');
+
+            // Log status transitions for teacher presentation
+            if (tempAlert !== lastEventStates.temp) {
+                logEvent(tempAlert ? `¡ALERTA! Temperatura crítica (${currentData.temperatura}°C). Activando extractores.` : "Temperatura normalizada.", tempAlert ? 'alert' : 'success');
+                lastEventStates.temp = tempAlert;
+            }
+            if (waterAlert !== lastEventStates.water) {
+                logEvent(waterAlert ? `¡ALERTA! Nivel de agua bajo (${currentData.nivel_agua}). Activando bomba de relleno.` : "Nivel de agua restablecido.", waterAlert ? 'alert' : 'success');
+                lastEventStates.water = waterAlert;
+            }
+
+            // OVERALL SYSTEM EMERGENCY ALERT STATUS
+            const isSystemEmergency = tempAlert || waterAlert || co2Alert || foodAlert;
+            const alertBanner = document.getElementById('alertBanner');
+            const alertBannerText = document.getElementById('alertBannerText');
+
+            if (isSystemEmergency) {
+                alertBanner.classList.remove('hidden');
+                let causes = [];
+                if (tempAlert) causes.push(`Temperatura Alta (${currentData.temperatura}°C)`);
+                if (waterAlert) causes.push(`Agua Baja (${currentData.nivel_agua})`);
+                if (co2Alert) causes.push(`CO2 Alto (${currentData.co2}ppm)`);
+                if (foodAlert) causes.push(`Alimento Escaso (${currentData.alimento}kg)`);
+
+                alertBannerText.innerText = `Acción Ciberfísica Requerida: ${causes.join(" | ")}`;
+
+                updateSysStatus(false, "¡ALERTA DE SEGURIDAD!");
+                playEmergencySiren(true);
+            } else {
+                alertBanner.classList.add('hidden');
+                updateSysStatus(true, "Sistema Operativo Seguro");
+                playEmergencySiren(false);
+            }
+        }
+
+        // Helper to update actuator visual state
+        function setActuatorState(iconId, badgeId, active, extraIconClass) {
+            const icon = document.getElementById(iconId);
+            const badge = document.getElementById(badgeId);
+
+            if (active) {
+                icon.className = `w-9 h-9 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-base border border-emerald-500/40 ${extraIconClass}`;
+                badge.innerText = "ACTIVADO";
+                badge.className = "text-xs px-2.5 py-1 rounded-full font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 animate-pulse";
+            } else {
+                icon.className = "w-9 h-9 rounded-lg bg-gray-800 text-gray-400 flex items-center justify-center text-base";
+                badge.innerText = "INACTIVO";
+                badge.className = "text-xs px-2.5 py-1 rounded-full font-semibold bg-gray-800 text-gray-400 border border-gray-700";
+            }
+        }
+
+        // Helper for Header status dot
+        function updateSysStatus(isSafe, text) {
+            const dot = document.getElementById('sysStatusDot');
+            const txt = document.getElementById('sysStatusText');
+            const mDot = document.getElementById('mobileStatusDot');
+            const mTxt = document.getElementById('mobileStatusText');
+
+            if (isSafe) {
+                dot.className = "w-3 h-3 rounded-full bg-emerald-500 animate-pulse";
+                txt.className = "text-xs font-semibold text-emerald-400";
+                mDot.className = "w-3 h-3 rounded-full bg-emerald-500 animate-pulse";
+                mTxt.className = "text-xs font-medium text-emerald-400";
+            } else {
+                dot.className = "w-3 h-3 rounded-full bg-red-500 animate-ping";
+                txt.className = "text-xs font-semibold text-red-400";
+                mDot.className = "w-3 h-3 rounded-full bg-red-500 animate-ping";
+                mTxt.className = "text-xs font-medium text-red-400";
+            }
+            txt.innerText = text;
+            mTxt.innerText = isSafe ? "Normal" : "Alerta";
+        }
+
+        // Append values to Chart
+        function pushChartData() {
+            if (!telemetryChart) return;
+
+            const now = new Date();
+            const timeLabel = now.getHours().toString().padStart(2, '0') + ':' + 
+                              now.getMinutes().toString().padStart(2, '0') + ':' + 
+                              now.getSeconds().toString().padStart(2, '0');
+
+            telemetryChart.data.labels.push(timeLabel);
+            telemetryChart.data.datasets[0].data.push(currentData.temperatura);
+            telemetryChart.data.datasets[1].data.push(currentData.humedad);
+
+            // Keep maximum 12 points visible
+            if (telemetryChart.data.labels.length > 12) {
+                telemetryChart.data.labels.shift();
+                telemetryChart.data.datasets[0].data.shift();
+                telemetryChart.data.datasets[1].data.shift();
+            }
+
+            telemetryChart.update();
+        }
+
+        // Siren Audio Synth using Tone.js
+        function playEmergencySiren(shouldPlay) {
+            if (!audioEnabled) return;
+
+            if (shouldPlay && !sirenPlaying) {
+                try {
+                    if (!synth) {
+                        synth = new Tone.Synth({
+                            oscillator: { type: 'sine' },
+                            envelope: { attack: 0.1, decay: 0.2, sustain: 0.5, release: 0.5 }
+                        }).toDestination();
+                    }
+                    Tone.start();
+                    sirenPlaying = true;
+                    // Play short alert tone
+                    synth.triggerAttackRelease("C5", "8n");
+                } catch (e) {
+                    console.log("Audio waiting user interaction");
+                }
+            } else if (!shouldPlay) {
+                sirenPlaying = false;
+            }
+        }
+
+        function toggleAudio() {
+            audioEnabled = !audioEnabled;
+            const btn = document.getElementById('btnAudioToggle');
+            if (audioEnabled) {
+                btn.innerHTML = `<i class="fa-solid fa-volume-high text-emerald-400 mr-1"></i> Habilitado`;
+            } else {
+                btn.innerHTML = `<i class="fa-solid fa-volume-xmark text-gray-500 mr-1"></i> Silenciado`;
+            }
+        }
+
+        function silenceSiren() {
+            audioEnabled = false;
+            toggleAudio();
+        }
+    </script>
+</body>
+</html>
